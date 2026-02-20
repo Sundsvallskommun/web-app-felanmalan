@@ -1,0 +1,16 @@
+{
+  "required": "Obligatoriskt fält",
+  "checkbox_required": "Du måste kryssa i denna ruta",
+  "min_length": "Ange minst {{limit}} tecken",
+  "max_length": "Ange högst {{limit}} tecken",
+  "min_items": "Välj minst {{limit}} alternativ",
+  "max_items": "Välj högst {{limit}} alternativ",
+  "minimum": "Värdet måste vara minst {{limit}}",
+  "maximum": "Värdet får vara högst {{limit}}",
+  "pattern": "Värdet matchar inte det förväntade formatet",
+  "email": "Ange en giltig e-postadress",
+  "url": "Ange en giltig länk (URL)",
+  "date": "Ange ett datum i giltigt format (ÅÅÅÅ-MM-DD)",
+  "date_time": "Ange datum och tid i giltigt format",
+  "format": "Värdet matchar inte formatet \"{{format}}\""
+}

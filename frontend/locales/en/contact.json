@@ -1,0 +1,9 @@
+{
+  "title": "Contact details",
+  "description": "Fill in if you would like feedback (optional).",
+  "email": "Email address",
+  "phone": "Phone number",
+  "email_placeholder": "name@example.com",
+  "phone_placeholder": "+46 70 123 45 67",
+  "email_invalid": "Enter a valid email address"
+}

@@ -1,0 +1,19 @@
+{
+  "title": "Review your report",
+  "description": "Check that the details are correct before submitting.",
+  "section_images": "Images",
+  "section_location": "Location",
+  "location_selected": "Location marked on the map",
+  "section_description": "Description",
+  "section_contact": "Contact details",
+  "edit": "Edit",
+  "address": "Address",
+  "email": "Email",
+  "phone": "Phone",
+  "image": "Image",
+  "submit_error": "Failed to submit. Please try again.",
+  "thank_you_title": "Thank you for your report!",
+  "thank_you_description": "We have received your fault report and will process it as soon as possible.",
+  "errand_number": "Case number",
+  "report_another": "Report another"
+}

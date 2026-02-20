@@ -1,0 +1,10 @@
+{
+  "app_name": "Felanmälan",
+  "loading": "Laddar...",
+  "error_generic": "Något gick fel. Försök igen.",
+  "back": "Tillbaka",
+  "next": "Nästa",
+  "submit": "Skicka in",
+  "cancel": "Avbryt",
+  "required_field": "Obligatoriskt fält"
+}

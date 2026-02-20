@@ -1,0 +1,9 @@
+{
+  "title": "Kontaktuppgifter",
+  "description": "Fyll i om du vill ha återkoppling (valfritt).",
+  "email": "E-postadress",
+  "phone": "Telefonnummer",
+  "email_placeholder": "namn@exempel.se",
+  "phone_placeholder": "070-174 06 35",
+  "email_invalid": "Ange en giltig e-postadress"
+}

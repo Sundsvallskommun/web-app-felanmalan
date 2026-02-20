@@ -1,0 +1,16 @@
+{
+  "required": "Required field",
+  "checkbox_required": "You must check this box",
+  "min_length": "Enter at least {{limit}} characters",
+  "max_length": "Enter at most {{limit}} characters",
+  "min_items": "Select at least {{limit}} options",
+  "max_items": "Select at most {{limit}} options",
+  "minimum": "Value must be at least {{limit}}",
+  "maximum": "Value must be at most {{limit}}",
+  "pattern": "Value does not match the expected format",
+  "email": "Enter a valid email address",
+  "url": "Enter a valid URL",
+  "date": "Enter a date in a valid format (YYYY-MM-DD)",
+  "date_time": "Enter a valid date and time",
+  "format": "Value does not match the format \"{{format}}\""
+}

@@ -1,0 +1,19 @@
+{
+  "title": "Granska din anmälan",
+  "description": "Kontrollera att uppgifterna stämmer innan du skickar in.",
+  "section_images": "Bilder",
+  "section_location": "Plats",
+  "location_selected": "Plats angiven på kartan",
+  "section_description": "Beskrivning",
+  "section_contact": "Kontaktuppgifter",
+  "edit": "Ändra",
+  "address": "Adress",
+  "email": "E-post",
+  "phone": "Telefon",
+  "image": "Bild",
+  "submit_error": "Det gick inte att skicka in. Försök igen.",
+  "thank_you_title": "Tack för din anmälan!",
+  "thank_you_description": "Vi har tagit emot din felanmälan och kommer att behandla den så snart som möjligt.",
+  "errand_number": "Ärendenummer",
+  "report_another": "Rapportera ett till"
+}
