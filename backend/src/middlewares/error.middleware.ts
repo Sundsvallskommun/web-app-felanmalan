@@ -20,6 +20,7 @@ const mapKnownError = (error: unknown): HttpException => {
     return new HttpException(400, error.message);
   }
 
+  logger.error(`Unhandled error type: ${error?.constructor?.name}, details: ${JSON.stringify(error, Object.getOwnPropertyNames(error as object)).slice(0, 500)}`);
   return new HttpException(500, 'Something went wrong');
 };
 
