@@ -34,10 +34,10 @@ yarn install
 
 ```
 cd frontend
-cp .env.example .env.local
+cp .env.example .env
 ```
 
-Redigera `.env.local` vid behov.
+Redigera `.env` vid behov.
 
 4. Skapa .env-fil för `backend`
 
