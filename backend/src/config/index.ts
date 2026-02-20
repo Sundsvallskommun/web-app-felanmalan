@@ -5,7 +5,7 @@ import { APIS } from './api-config';
 export { APIS };
 
 const env = process.env.NODE_ENV || 'development';
-const envFiles = [`.env.${env}.local`, '.env.local', '.env'];
+const envFiles = [`.env.${env}`, '.env'];
 
 envFiles.forEach((envFile) => {
   if (existsSync(envFile)) {
