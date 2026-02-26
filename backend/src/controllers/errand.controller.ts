@@ -2,16 +2,35 @@ import { MUNICIPALITY_ID, NAMESPACE } from '@/config';
 import { getApiBase } from '@/config/api-config';
 import { HttpException } from '@/exceptions/http.exception';
 import ApiService from '@/services/api.service';
+import ApiTokenService from '@/services/api-token.service';
+import ClassifyService from '@/services/classify.service';
 import { logger } from '@/utils/logger';
 import { apiURL } from '@/utils/util';
+import axios from 'axios';
 import { Request, Response } from 'express';
-import { Controller, Post, Req, Res, UseBefore } from 'routing-controllers';
+import { Controller, Get, Param, Post, Req, Res, UseBefore } from 'routing-controllers';
 import multer from 'multer';
 import FormData from 'form-data';
 import proj4 from 'proj4';
 
 // SWEREF99 TM (EPSG:3006)
 proj4.defs('EPSG:3006', '+proj=utm +zone=33 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs');
+
+interface ErrandFromApi {
+  id: string;
+  errandNumber?: string;
+  title?: string;
+  description?: string;
+  status: string;
+  created: string;
+  classification?: { category?: string; type?: string };
+  parameters?: { key: string; values: string[] }[];
+}
+
+interface ErrandsApiResponse {
+  content: ErrandFromApi[];
+  totalElements: number;
+}
 
 const MAX_UPLOAD_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic']);
@@ -35,6 +54,8 @@ const upload = multer({
 @Controller()
 export class ErrandController {
   private apiService = new ApiService();
+  private apiTokenService = new ApiTokenService();
+  private classifyService = new ClassifyService();
   private apiBase = getApiBase('supportmanagement');
   private errandBasePath = `${MUNICIPALITY_ID}/${NAMESPACE}/errands`;
 
@@ -95,6 +116,17 @@ export class ErrandController {
         }
       }
 
+      // AI classification (graceful fallback)
+      const firstImage = files.length > 0 ? files[0] : undefined;
+      const errandDescription = typeof errandData.description === 'string'
+        ? errandData.description : undefined;
+      const aiType = await this.classifyService.classify(firstImage, errandDescription);
+
+      errandData.classification = {
+        category: 'FELANMALAN',
+        type: aiType,
+      };
+
       // Fixed application ID used as reporterUserId for all anonymous fault reports
       const REPORTER_USER_ID = 'd4e5f6a7-b8c9-4d0e-a1f2-3b4c5d6e7f80';
 
@@ -105,8 +137,7 @@ export class ErrandController {
         status: 'NEW',
       };
 
-      // TODO: Remove after verifying coordinate transform
-      logger.info(`Errand payload: ${JSON.stringify(payload, null, 2)}`);
+      logger.info(`Creating errand: classification=${aiType}, images=${files.length}`);
 
       // 1. Create the errand
       const errandRes = await this.apiService.post<{ id: string; errandNumber?: string }>({
@@ -153,6 +184,90 @@ export class ErrandController {
 
       logger.error(`Error creating errand: ${JSON.stringify(error).slice(0, 300)}`);
       return response.status(502).json({ message: 'Failed to create errand' });
+    }
+  }
+
+  @Get('/errands')
+  async getActiveErrands(@Res() response: Response): Promise<Response> {
+    try {
+      const res = await this.apiService.get<ErrandsApiResponse>({
+        baseURL: apiURL(this.apiBase),
+        url: this.errandBasePath,
+        params: {
+          filter: "status:'NEW' or status:'ONGOING'",
+          size: 200,
+        },
+      });
+
+      const errands = (res.data.content || [])
+        .filter(errand => errand.classification?.category === 'FELANMALAN')
+        .map(errand => {
+          const coordParam = errand.parameters?.find(p => p.key === 'coordinates');
+          let coordinates: { x: number; y: number } | null = null;
+
+          if (coordParam?.values[0]) {
+            const [latStr, lngStr] = coordParam.values[0].split(',');
+            const lat = parseFloat(latStr);
+            const lng = parseFloat(lngStr);
+
+            if (!isNaN(lat) && !isNaN(lng)) {
+              // WGS84 (lat,lng) → EPSG:3006 (easting, northing)
+              const [x, y] = proj4('WGS84', 'EPSG:3006', [lng, lat]);
+              coordinates = { x, y };
+            }
+          }
+
+          return {
+            id: errand.id,
+            errandNumber: errand.errandNumber,
+            title: errand.title,
+            description: errand.description,
+            status: errand.status,
+            created: errand.created,
+            coordinates,
+          };
+        }).filter(e => e.coordinates !== null);
+
+      return response.json({ errands });
+    } catch (error) {
+      if (error instanceof HttpException) {
+        return response.status(error.status).json({ message: error.message });
+      }
+
+      logger.error(`Error fetching errands: ${JSON.stringify(error).slice(0, 300)}`);
+      return response.status(502).json({ message: 'Failed to fetch errands' });
+    }
+  }
+
+  @Get('/errands/:errandId/attachments/:attachmentId')
+  async getAttachment(
+    @Param('errandId') errandId: string,
+    @Param('attachmentId') attachmentId: string,
+    @Res() response: Response,
+  ): Promise<Response> {
+    try {
+      const token = await this.apiTokenService.getToken();
+
+      const url = apiURL(this.apiBase, `${this.errandBasePath}/${errandId}/attachments/${attachmentId}`);
+      const res = await axios.get(url, {
+        responseType: 'arraybuffer',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-Sent-By': 'felanmalan-app',
+        },
+      });
+
+      const contentType = res.headers['content-type'] || 'application/octet-stream';
+      response.set('Content-Type', contentType);
+      response.set('Cache-Control', 'public, max-age=3600');
+      return response.send(Buffer.from(res.data));
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status) {
+        return response.status(error.response.status === 404 ? 404 : 502).json({ message: 'Attachment not found' });
+      }
+
+      logger.error(`Error fetching attachment: ${JSON.stringify(error).slice(0, 300)}`);
+      return response.status(502).json({ message: 'Failed to fetch attachment' });
     }
   }
 }

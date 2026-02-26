@@ -25,5 +25,12 @@
   "phone_placeholder": "+46 70 123 45 67",
   "error_no_image": "Add at least one image",
   "error_no_location": "Mark a location on the map",
-  "error_file_too_large": "Each image must be 25 MB or less"
+  "error_file_too_large": "Each image must be 25 MB or less",
+
+  "map_show_errands": "Show active errands",
+  "map_hide_errands": "Hide active errands",
+  "errand_untitled": "Untitled errand",
+  "close": "Close",
+  "nearby_errand_warning": "There is already a report nearby",
+  "error_outside_municipality": "The location is outside the municipality boundary. Please mark a location within the municipality."
 }

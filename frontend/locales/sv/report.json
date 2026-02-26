@@ -25,5 +25,12 @@
   "phone_placeholder": "070-174 06 35",
   "error_no_image": "Lägg till minst en bild",
   "error_no_location": "Markera en plats på kartan",
-  "error_file_too_large": "Varje bild får vara högst 25 MB"
+  "error_file_too_large": "Varje bild får vara högst 25 MB",
+
+  "map_show_errands": "Visa aktiva ärenden",
+  "map_hide_errands": "Dölj aktiva ärenden",
+  "errand_untitled": "Ärende utan titel",
+  "close": "Stäng",
+  "nearby_errand_warning": "Det finns redan en anmälan i närheten",
+  "error_outside_municipality": "Platsen ligger utanför kommunens gränser. Markera en plats inom kommunen."
 }

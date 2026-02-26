@@ -6,6 +6,8 @@ import { Button } from '@sk-web-gui/react';
 import LucideIcon from '@sk-web-gui/lucide-icon';
 import { useTranslation } from 'react-i18next';
 import { useWizardStore } from '@stores/wizard-store';
+import { fetchActiveErrands } from '@services/errand-service';
+import { ErrandMarker } from '@interfaces/errand-marker.types';
 
 declare global {
   interface Window {
@@ -16,10 +18,14 @@ declare global {
 // Sundsvall centrum (Stora torget) in EPSG:3006
 const SUNDSVALL_CENTER: [number, number] = [617144, 6921822];
 const USER_ZOOM = 9;
+const DUPLICATE_RADIUS_METERS = 20;
+
+// Sundsvall kommun bounding box in EPSG:3006
+const MUNICIPALITY_EXTENT = [565031, 6887804, 667486, 6981257];
 
 const ORIGO_CONFIG = {
   projectionExtent: [487000, 6803000, 773720, 7376440],
-  extent: [487000, 6803000, 773720, 7376440],
+  extent: MUNICIPALITY_EXTENT,
   center: SUNDSVALL_CENTER,
   resolutions: [280, 140, 70, 28, 14, 7, 4.2, 2.8, 1.4, 0.56, 0.28, 0.14, 0.112, 0.056],
   zoom: 5,
@@ -62,11 +68,48 @@ const ORIGO_CONFIG = {
   controls: [],
 };
 
-/** Check if coordinate is within the map extent */
+/** Bounding-box fallback check */
 const isWithinExtent = (coord: [number, number]) => {
-  const [minX, minY, maxX, maxY] = ORIGO_CONFIG.extent;
+  const [minX, minY, maxX, maxY] = MUNICIPALITY_EXTENT;
   return coord[0] >= minX && coord[0] <= maxX && coord[1] >= minY && coord[1] <= maxY;
 };
+
+/** Euclidean distance in meters (EPSG:3006 is metric) */
+const distanceMeters = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return Math.sqrt(dx * dx + dy * dy);
+};
+
+const findNearbyErrand = (
+  coord: [number, number],
+  errands: ErrandMarker[],
+): ErrandMarker | null => {
+  const point = { x: coord[0], y: coord[1] };
+  let closest: ErrandMarker | null = null;
+  let closestDist = Infinity;
+
+  for (const errand of errands) {
+    const dist = distanceMeters(point, errand.coordinates);
+    if (dist < DUPLICATE_RADIUS_METERS && dist < closestDist) {
+      closest = errand;
+      closestDist = dist;
+    }
+  }
+
+  return closest;
+};
+
+const formatDate = (dateStr: string) => {
+  try {
+    return new Date(dateStr).toLocaleDateString('sv-SE');
+  } catch {
+    return dateStr;
+  }
+};
+
+const MUNICIPALITY_WFS_URL =
+  'https://karta.sundsvall.se/geoserver/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=SundsvallsKommun:SundsvallsKommun_yta&outputFormat=application/json&srsName=EPSG:3006';
 
 const ORIGO_CSS = 'https://karta.sundsvall.se/origo2client/css/style.css';
 const ORIGO_JS = 'https://karta.sundsvall.se/origo2client/dist/origo.min.js';
@@ -82,17 +125,60 @@ export const OrigoMap = () => {
   const userPosRef = useRef<[number, number] | null>(null);
   const markerLayerRef = useRef<any>(null);
   const userDotLayerRef = useRef<any>(null);
+  const errandLayerRef = useRef<any>(null);
+  const popupOverlayRef = useRef<any>(null);
+  const popupContainerRef = useRef<HTMLDivElement>(null);
+  const municipalityGeomRef = useRef<any>(null);
 
   const [loading, setLoading] = useState(true);
   const [hasUserPos, setHasUserPos] = useState(false);
+  const [showErrands, setShowErrands] = useState(false);
+  const [errands, setErrands] = useState<ErrandMarker[] | null>(null);
+  const [errandsLoading, setErrandsLoading] = useState(false);
+  const [selectedErrand, setSelectedErrand] = useState<ErrandMarker | null>(null);
+  const [isDuplicateWarning, setIsDuplicateWarning] = useState(false);
+  const [outsideError, setOutsideError] = useState(false);
+
+  // Keep refs in sync for use in map click handlers
+  const showErrandsRef = useRef(showErrands);
+  showErrandsRef.current = showErrands;
+  const errandsRef = useRef(errands);
+  errandsRef.current = errands;
+
+  /** Check if coordinate is within municipality polygon (falls back to bounding box) */
+  const isWithinMunicipality = useCallback((coord: [number, number]) => {
+    if (municipalityGeomRef.current) {
+      return municipalityGeomRef.current.intersectsCoordinate(coord);
+    }
+    return isWithinExtent(coord);
+  }, []);
+
   const saveLocation = useCallback((coord: [number, number]) => {
-    // EPSG:3006: coord is [easting, northing] i.e. [x, y]
     setMapLocation({ x: coord[0], y: coord[1] });
   }, [setMapLocation]);
 
+  const showPopup = useCallback((errand: ErrandMarker, isDuplicate: boolean) => {
+    setSelectedErrand(errand);
+    setIsDuplicateWarning(isDuplicate);
+
+    const overlay = popupOverlayRef.current;
+    if (overlay) {
+      overlay.setPosition([errand.coordinates.x, errand.coordinates.y]);
+    }
+  }, []);
+
+  const hidePopup = useCallback(() => {
+    setSelectedErrand(null);
+    setIsDuplicateWarning(false);
+    const overlay = popupOverlayRef.current;
+    if (overlay) {
+      overlay.setPosition(undefined);
+    }
+  }, []);
+
   const placeMarker = useCallback((coord: [number, number]) => {
     const map = mapRef.current;
-    if (!map || !window.Origo || !isWithinExtent(coord)) return;
+    if (!map || !window.Origo || !isWithinMunicipality(coord)) return;
 
     const ol = window.Origo.ol;
 
@@ -121,15 +207,123 @@ export const OrigoMap = () => {
     map.addLayer(layer);
     markerLayerRef.current = layer;
     saveLocation(coord);
-  }, [saveLocation]);
+  }, [saveLocation, isWithinMunicipality]);
+
+  const handleMapClick = useCallback((coord: [number, number]) => {
+    if (!isWithinMunicipality(coord)) {
+      setOutsideError(true);
+      return;
+    }
+
+    setOutsideError(false);
+
+    // Check for duplicate if errands are visible
+    if (showErrandsRef.current && errandsRef.current) {
+      const nearby = findNearbyErrand(coord, errandsRef.current);
+      if (nearby) {
+        showPopup(nearby, true);
+        return;
+      }
+    }
+
+    hidePopup();
+    placeMarker(coord);
+  }, [placeMarker, showPopup, hidePopup, isWithinMunicipality]);
 
   const handleUseMyPosition = useCallback(() => {
     const pos = userPosRef.current;
     if (!pos || !mapRef.current) return;
 
+    if (!isWithinMunicipality(pos)) {
+      setOutsideError(true);
+      return;
+    }
+
+    setOutsideError(false);
+
+    // Check for duplicate if errands are visible
+    if (showErrandsRef.current && errandsRef.current) {
+      const nearby = findNearbyErrand(pos, errandsRef.current);
+      if (nearby) {
+        showPopup(nearby, true);
+        mapRef.current.getView().animate({ center: pos, zoom: USER_ZOOM });
+        return;
+      }
+    }
+
+    hidePopup();
     placeMarker(pos);
     mapRef.current.getView().animate({ center: pos, zoom: USER_ZOOM });
-  }, [placeMarker]);
+  }, [placeMarker, showPopup, hidePopup, isWithinMunicipality]);
+
+  // Toggle errands layer
+  const handleToggleErrands = useCallback(async () => {
+    if (!showErrands) {
+      // Turning on
+      if (!errands) {
+        setErrandsLoading(true);
+        try {
+          const data = await fetchActiveErrands();
+          setErrands(data);
+        } catch (err) {
+          console.error('Failed to fetch errands:', err);
+          setErrandsLoading(false);
+          return;
+        }
+        setErrandsLoading(false);
+      }
+      setShowErrands(true);
+    } else {
+      // Turning off
+      setShowErrands(false);
+      hidePopup();
+    }
+  }, [showErrands, errands, hidePopup]);
+
+  // Add/remove errand markers layer
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.Origo) return;
+
+    const ol = window.Origo.ol;
+
+    // Remove existing errand layer
+    if (errandLayerRef.current) {
+      map.removeLayer(errandLayerRef.current);
+      errandLayerRef.current = null;
+    }
+
+    if (!showErrands || !errands || errands.length === 0) return;
+
+    const features = errands.map((errand) => {
+      const feature = new ol.Feature({
+        geometry: new ol.geom.Point([errand.coordinates.x, errand.coordinates.y]),
+      });
+
+      feature.set('errandData', errand);
+
+      feature.setStyle(
+        new ol.style.Style({
+          image: new ol.style.RegularShape({
+            points: 3,
+            radius: 12,
+            fill: new ol.style.Fill({ color: '#f59e0b' }),
+            stroke: new ol.style.Stroke({ color: '#ffffff', width: 2 }),
+            rotation: 0,
+          }),
+        })
+      );
+
+      return feature;
+    });
+
+    const layer = new ol.layer.Vector({
+      source: new ol.source.Vector({ features }),
+    });
+
+    map.addLayer(layer);
+    errandLayerRef.current = layer;
+  }, [showErrands, errands]);
 
   useEffect(() => {
     if (initializedRef.current) return;
@@ -214,6 +408,88 @@ export const OrigoMap = () => {
           // Remove Origo's fullscreen button
           containerRef.current?.querySelector('.o-fullscreen')?.remove();
 
+          // Add municipality mask layer (dims area outside Sundsvall)
+          fetch(MUNICIPALITY_WFS_URL)
+            .then(res => res.json())
+            .then(geojson => {
+              // Collect rings (flat) for the mask and full polygons for validation
+              const municipalityCoords: number[][][] = [];
+              const polygonCoords: number[][][][] = [];
+
+              for (const feature of geojson.features) {
+                const geom = feature.geometry;
+                if (geom.type === 'Polygon') {
+                  municipalityCoords.push(...geom.coordinates);
+                  polygonCoords.push(geom.coordinates);
+                } else if (geom.type === 'MultiPolygon') {
+                  for (const poly of geom.coordinates) {
+                    municipalityCoords.push(...poly);
+                    polygonCoords.push(poly);
+                  }
+                }
+              }
+
+              // Save municipality geometry for point-in-polygon validation
+              municipalityGeomRef.current = new ol.geom.MultiPolygon(polygonCoords);
+
+              // Large outer box covering the full projection extent
+              const [minX, minY, maxX, maxY] = ORIGO_CONFIG.projectionExtent;
+              const outerRing = [
+                [minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY],
+              ];
+
+              // Inverted polygon: outer box with municipality as holes
+              const maskPolygon = new ol.geom.Polygon([outerRing, ...municipalityCoords]);
+              const maskFeature = new ol.Feature({ geometry: maskPolygon });
+
+              maskFeature.setStyle(
+                new ol.style.Style({
+                  fill: new ol.style.Fill({ color: 'rgba(150, 150, 150, 0.55)' }),
+                })
+              );
+
+              const maskLayer = new ol.layer.Vector({
+                source: new ol.source.Vector({ features: [maskFeature] }),
+                zIndex: 1,
+              });
+
+              map.addLayer(maskLayer);
+
+              // Add municipality border line layer
+              const borderFeature = new ol.Feature({
+                geometry: new ol.geom.MultiPolygon(polygonCoords),
+              });
+
+              borderFeature.setStyle(
+                new ol.style.Style({
+                  stroke: new ol.style.Stroke({ color: '#005595', width: 2 }),
+                  fill: undefined,
+                })
+              );
+
+              const borderLayer = new ol.layer.Vector({
+                source: new ol.source.Vector({ features: [borderFeature] }),
+                zIndex: 2,
+              });
+
+              map.addLayer(borderLayer);
+            })
+            .catch(() => {
+              // Mask is non-critical, fail silently
+            });
+
+          // Initialize popup overlay
+          if (popupContainerRef.current) {
+            const overlay = new ol.Overlay({
+              element: popupContainerRef.current,
+              positioning: 'bottom-center',
+              offset: [0, -16],
+              stopEvent: true,
+            });
+            map.addOverlay(overlay);
+            popupOverlayRef.current = overlay;
+          }
+
           // Use OpenLayers Geolocation to get position in map projection
           const geolocation = new ol.Geolocation({
             tracking: true,
@@ -226,14 +502,12 @@ export const OrigoMap = () => {
 
             const coord: [number, number] = [pos[0], pos[1]];
 
-            if (isWithinExtent(coord)) {
-              // Position is within map bounds - show dot and center
+            if (isWithinMunicipality(coord)) {
               userPosRef.current = coord;
               setHasUserPos(true);
               addUserPositionDot(map, coord);
               map.getView().animate({ center: coord, zoom: USER_ZOOM });
             }
-            // Otherwise keep default center (Sundsvall centrum)
 
             geolocation.setTracking(false);
           });
@@ -242,9 +516,24 @@ export const OrigoMap = () => {
             // Geolocation denied or unavailable - keep default center
           });
 
-          // Click on map to place report marker
+          // Click on map
           map.on('click', (e: any) => {
-            placeMarker(e.coordinate);
+            // Check if an errand marker was clicked
+            let clickedErrand: ErrandMarker | null = null;
+
+            map.forEachFeatureAtPixel(e.pixel, (feature: any) => {
+              const data = feature.get('errandData');
+              if (data) {
+                clickedErrand = data as ErrandMarker;
+              }
+            });
+
+            if (clickedErrand) {
+              showPopup(clickedErrand, false);
+              return;
+            }
+
+            handleMapClick(e.coordinate);
           });
         });
       } catch (err) {
@@ -255,7 +544,7 @@ export const OrigoMap = () => {
     };
 
     init();
-  }, [placeMarker]);
+  }, [placeMarker, handleMapClick, showPopup, isWithinMunicipality]);
 
   return (
     <div className="flex flex-col gap-12">
@@ -272,6 +561,51 @@ export const OrigoMap = () => {
           id="origo-map"
           className="h-full w-full"
         />
+
+        {/* Popup overlay element — positioned by OpenLayers */}
+        <div ref={popupContainerRef} className="errand-popup" style={{ display: selectedErrand ? 'block' : 'none' }}>
+          {selectedErrand && (
+            <div className="errand-popup-content">
+              <button
+                className="errand-popup-close"
+                onClick={hidePopup}
+                aria-label={t('close')}
+              >
+                &times;
+              </button>
+
+              <p className="errand-popup-title">
+                {selectedErrand.title || selectedErrand.errandNumber || t('errand_untitled')}
+              </p>
+
+              {selectedErrand.description && (
+                <p className="errand-popup-description">{selectedErrand.description}</p>
+              )}
+
+              <div className="errand-popup-meta">
+                <span className={`errand-status-badge${selectedErrand.status === 'ONGOING' ? ' errand-status-badge--ongoing' : ''}`}>
+                  {selectedErrand.status}
+                </span>
+                <span>{formatDate(selectedErrand.created)}</span>
+              </div>
+
+              {isDuplicateWarning && (
+                <div className="errand-popup-warning">
+                  {t('nearby_errand_warning')}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div aria-live="polite">
+        {outsideError && (
+          <div role="alert" className="flex items-center gap-8 rounded-lg border border-error bg-error-background-200 text-error dark:bg-error-background-300 px-12 py-8 text-small">
+            <LucideIcon name="triangle-alert" size={16} />
+            <p>{t('error_outside_municipality')}</p>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-12">
@@ -286,6 +620,15 @@ export const OrigoMap = () => {
           </Button>
         )}
 
+        <Button
+          variant="tertiary"
+          size="sm"
+          onClick={handleToggleErrands}
+          disabled={errandsLoading}
+          leftIcon={<LucideIcon name="layers" size={16} />}
+        >
+          {errandsLoading ? '...' : t(showErrands ? 'map_hide_errands' : 'map_show_errands')}
+        </Button>
       </div>
     </div>
   );
