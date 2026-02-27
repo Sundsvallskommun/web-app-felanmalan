@@ -29,4 +29,12 @@ body {
     min-height: 4.4rem;
     min-width: 4.4rem;
   }
+
+  .map-controls button,
+  .map-controls a,
+  .map-controls [role='button'],
+  .errand-popup button {
+    min-height: unset;
+    min-width: unset;
+  }
 }

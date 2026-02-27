@@ -23,6 +23,7 @@ interface ErrandFromApi {
   description?: string;
   status: string;
   created: string;
+  touched?: string;
   classification?: { category?: string; type?: string };
   parameters?: { key: string; values: string[] }[];
 }
@@ -194,13 +195,12 @@ export class ErrandController {
         baseURL: apiURL(this.apiBase),
         url: this.errandBasePath,
         params: {
-          filter: "status:'NEW' or status:'ONGOING'",
+          filter: "category:'FELANMALAN' and (status:'NEW' or status:'ONGOING')",
           size: 200,
         },
       });
 
       const errands = (res.data.content || [])
-        .filter(errand => errand.classification?.category === 'FELANMALAN')
         .map(errand => {
           const coordParam = errand.parameters?.find(p => p.key === 'coordinates');
           let coordinates: { x: number; y: number } | null = null;
@@ -222,8 +222,10 @@ export class ErrandController {
             errandNumber: errand.errandNumber,
             title: errand.title,
             description: errand.description,
+            classificationType: errand.classification?.type,
             status: errand.status,
             created: errand.created,
+            touched: errand.touched,
             coordinates,
           };
         }).filter(e => e.coordinates !== null);

@@ -98,6 +98,16 @@
   }
 }
 
+.errand-type-badge {
+  display: inline-block;
+  padding: 0.2rem 0.8rem;
+  border-radius: 1rem;
+  font-size: 1.1rem;
+  font-weight: 500;
+  background: #f0fdf4;
+  color: #166534;
+}
+
 .errand-popup-images {
   display: flex;
   gap: 0.6rem;
@@ -113,13 +123,10 @@
   }
 }
 
-.errand-popup-warning {
-  margin-top: 1rem;
-  padding: 0.8rem 1rem;
-  background: #fef3c7;
-  border: 1px solid #f59e0b;
-  border-radius: 0.6rem;
+.errand-popup-dates {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
   font-size: 1.2rem;
-  color: #92400e;
-  font-weight: 500;
+  color: #777;
 }

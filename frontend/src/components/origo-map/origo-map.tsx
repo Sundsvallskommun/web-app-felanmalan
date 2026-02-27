@@ -18,8 +18,6 @@ declare global {
 // Sundsvall centrum (Stora torget) in EPSG:3006
 const SUNDSVALL_CENTER: [number, number] = [617144, 6921822];
 const USER_ZOOM = 9;
-const DUPLICATE_RADIUS_METERS = 20;
-
 // Sundsvall kommun bounding box in EPSG:3006
 const MUNICIPALITY_EXTENT = [565031, 6887804, 667486, 6981257];
 
@@ -74,32 +72,6 @@ const isWithinExtent = (coord: [number, number]) => {
   return coord[0] >= minX && coord[0] <= maxX && coord[1] >= minY && coord[1] <= maxY;
 };
 
-/** Euclidean distance in meters (EPSG:3006 is metric) */
-const distanceMeters = (a: { x: number; y: number }, b: { x: number; y: number }) => {
-  const dx = a.x - b.x;
-  const dy = a.y - b.y;
-  return Math.sqrt(dx * dx + dy * dy);
-};
-
-const findNearbyErrand = (
-  coord: [number, number],
-  errands: ErrandMarker[],
-): ErrandMarker | null => {
-  const point = { x: coord[0], y: coord[1] };
-  let closest: ErrandMarker | null = null;
-  let closestDist = Infinity;
-
-  for (const errand of errands) {
-    const dist = distanceMeters(point, errand.coordinates);
-    if (dist < DUPLICATE_RADIUS_METERS && dist < closestDist) {
-      closest = errand;
-      closestDist = dist;
-    }
-  }
-
-  return closest;
-};
-
 const formatDate = (dateStr: string) => {
   try {
     return new Date(dateStr).toLocaleDateString('sv-SE');
@@ -136,14 +108,7 @@ export const OrigoMap = () => {
   const [errands, setErrands] = useState<ErrandMarker[] | null>(null);
   const [errandsLoading, setErrandsLoading] = useState(false);
   const [selectedErrand, setSelectedErrand] = useState<ErrandMarker | null>(null);
-  const [isDuplicateWarning, setIsDuplicateWarning] = useState(false);
   const [outsideError, setOutsideError] = useState(false);
-
-  // Keep refs in sync for use in map click handlers
-  const showErrandsRef = useRef(showErrands);
-  showErrandsRef.current = showErrands;
-  const errandsRef = useRef(errands);
-  errandsRef.current = errands;
 
   /** Check if coordinate is within municipality polygon (falls back to bounding box) */
   const isWithinMunicipality = useCallback((coord: [number, number]) => {
@@ -157,9 +122,8 @@ export const OrigoMap = () => {
     setMapLocation({ x: coord[0], y: coord[1] });
   }, [setMapLocation]);
 
-  const showPopup = useCallback((errand: ErrandMarker, isDuplicate: boolean) => {
+  const showPopup = useCallback((errand: ErrandMarker) => {
     setSelectedErrand(errand);
-    setIsDuplicateWarning(isDuplicate);
 
     const overlay = popupOverlayRef.current;
     if (overlay) {
@@ -169,7 +133,6 @@ export const OrigoMap = () => {
 
   const hidePopup = useCallback(() => {
     setSelectedErrand(null);
-    setIsDuplicateWarning(false);
     const overlay = popupOverlayRef.current;
     if (overlay) {
       overlay.setPosition(undefined);
@@ -216,19 +179,9 @@ export const OrigoMap = () => {
     }
 
     setOutsideError(false);
-
-    // Check for duplicate if errands are visible
-    if (showErrandsRef.current && errandsRef.current) {
-      const nearby = findNearbyErrand(coord, errandsRef.current);
-      if (nearby) {
-        showPopup(nearby, true);
-        return;
-      }
-    }
-
     hidePopup();
     placeMarker(coord);
-  }, [placeMarker, showPopup, hidePopup, isWithinMunicipality]);
+  }, [placeMarker, hidePopup, isWithinMunicipality]);
 
   const handleUseMyPosition = useCallback(() => {
     const pos = userPosRef.current;
@@ -240,21 +193,10 @@ export const OrigoMap = () => {
     }
 
     setOutsideError(false);
-
-    // Check for duplicate if errands are visible
-    if (showErrandsRef.current && errandsRef.current) {
-      const nearby = findNearbyErrand(pos, errandsRef.current);
-      if (nearby) {
-        showPopup(nearby, true);
-        mapRef.current.getView().animate({ center: pos, zoom: USER_ZOOM });
-        return;
-      }
-    }
-
     hidePopup();
     placeMarker(pos);
     mapRef.current.getView().animate({ center: pos, zoom: USER_ZOOM });
-  }, [placeMarker, showPopup, hidePopup, isWithinMunicipality]);
+  }, [placeMarker, hidePopup, isWithinMunicipality]);
 
   // Toggle errands layer
   const handleToggleErrands = useCallback(async () => {
@@ -319,6 +261,7 @@ export const OrigoMap = () => {
 
     const layer = new ol.layer.Vector({
       source: new ol.source.Vector({ features }),
+      zIndex: 3,
     });
 
     map.addLayer(layer);
@@ -529,7 +472,7 @@ export const OrigoMap = () => {
             });
 
             if (clickedErrand) {
-              showPopup(clickedErrand, false);
+              showPopup(clickedErrand);
               return;
             }
 
@@ -550,7 +493,7 @@ export const OrigoMap = () => {
     <div className="flex flex-col gap-12">
       <p className="text-small text-dark-secondary">{t('map_click_hint')}</p>
 
-      <div className="relative w-full overflow-hidden rounded-lg h-[50rem]">
+      <div className="map-controls relative w-full overflow-hidden rounded-lg h-[50rem]">
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-background-200">
             <p className="text-dark-secondary">Laddar karta...</p>
@@ -586,14 +529,20 @@ export const OrigoMap = () => {
                 <span className={`errand-status-badge${selectedErrand.status === 'ONGOING' ? ' errand-status-badge--ongoing' : ''}`}>
                   {selectedErrand.status}
                 </span>
-                <span>{formatDate(selectedErrand.created)}</span>
+                {selectedErrand.classificationType && (
+                  <span className="errand-type-badge">
+                    {t(`errand_type_${selectedErrand.classificationType}`, selectedErrand.classificationType)}
+                  </span>
+                )}
               </div>
 
-              {isDuplicateWarning && (
-                <div className="errand-popup-warning">
-                  {t('nearby_errand_warning')}
-                </div>
-              )}
+              <div className="errand-popup-dates">
+                <span>{t('errand_created')}: {formatDate(selectedErrand.created)}</span>
+                {selectedErrand.touched && selectedErrand.touched !== selectedErrand.created && (
+                  <span>{t('errand_updated')}: {formatDate(selectedErrand.touched)}</span>
+                )}
+              </div>
+
             </div>
           )}
         </div>
@@ -608,7 +557,7 @@ export const OrigoMap = () => {
         )}
       </div>
 
-      <div className="flex items-center gap-12">
+      <div className="map-controls flex flex-wrap items-center gap-12">
         {hasUserPos && (
           <Button
             variant="tertiary"
