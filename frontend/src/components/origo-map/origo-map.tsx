@@ -527,7 +527,7 @@ export const OrigoMap = () => {
 
               <div className="errand-popup-meta">
                 <span className={`errand-status-badge${selectedErrand.status === 'ONGOING' ? ' errand-status-badge--ongoing' : ''}`}>
-                  {selectedErrand.status}
+                  {t(`errand_status_${selectedErrand.status}`, selectedErrand.status)}
                 </span>
                 {selectedErrand.classificationType && (
                   <span className="errand-type-badge">

@@ -195,7 +195,7 @@ export class ErrandController {
         baseURL: apiURL(this.apiBase),
         url: this.errandBasePath,
         params: {
-          filter: "category:'FELANMALAN' and (status:'NEW' or status:'ONGOING')",
+          filter: "category:'FELANMALAN'",
           size: 200,
         },
       });
