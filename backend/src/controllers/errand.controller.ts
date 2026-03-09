@@ -117,15 +117,10 @@ export class ErrandController {
         }
       }
 
-      // AI classification (graceful fallback)
-      const firstImage = files.length > 0 ? files[0] : undefined;
-      const errandDescription = typeof errandData.description === 'string'
-        ? errandData.description : undefined;
-      const aiType = await this.classifyService.classify(firstImage, errandDescription);
-
+      // Default classification — AI classification runs async after response
       errandData.classification = {
         category: 'FELANMALAN',
-        type: aiType,
+        type: 'OTHER',
       };
 
       // Fixed application ID used as reporterUserId for all anonymous fault reports
@@ -138,7 +133,7 @@ export class ErrandController {
         status: 'NEW',
       };
 
-      logger.info(`Creating errand: classification=${aiType}, images=${files.length}`);
+      logger.info(`Creating errand: classification=OTHER (async AI pending), images=${files.length}`);
 
       // 1. Create the errand
       const errandRes = await this.apiService.post<{ id: string; errandNumber?: string }>({
@@ -177,6 +172,12 @@ export class ErrandController {
         throw new HttpException(502, 'Attachment upload failed');
       }
 
+      // Fire-and-forget: classify asynchronously and patch errand
+      const firstImage = files.length > 0 ? files[0] : undefined;
+      const errandDescription = typeof errandData.description === 'string'
+        ? errandData.description : undefined;
+      this.classifyAndPatch(errandId, firstImage, errandDescription);
+
       return response.status(201).json({ id: errandId, errandNumber });
     } catch (error) {
       if (error instanceof HttpException) {
@@ -186,6 +187,32 @@ export class ErrandController {
       logger.error(`Error creating errand: ${JSON.stringify(error).slice(0, 300)}`);
       return response.status(502).json({ message: 'Failed to create errand' });
     }
+  }
+
+  private classifyAndPatch(errandId: string, image?: Express.Multer.File, description?: string): void {
+    this.classifyService.classify(image, description)
+      .then(async (aiType) => {
+        if (aiType === 'OTHER') {
+          logger.info(`Async classification for errand ${errandId}: OTHER (no patch needed)`);
+          return;
+        }
+
+        logger.info(`Async classification for errand ${errandId}: ${aiType}, patching...`);
+        await this.apiService.patch({
+          baseURL: apiURL(this.apiBase),
+          url: `${this.errandBasePath}/${errandId}`,
+          data: {
+            classification: {
+              category: 'FELANMALAN',
+              type: aiType,
+            },
+          },
+        });
+        logger.info(`Errand ${errandId} patched with classification: ${aiType}`);
+      })
+      .catch((error) => {
+        logger.warn(`Async classification failed for errand ${errandId}: ${JSON.stringify(error).slice(0, 300)}`);
+      });
   }
 
   @Get('/errands')
