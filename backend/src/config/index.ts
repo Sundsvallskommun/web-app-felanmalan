@@ -25,4 +25,5 @@ export const {
   BASE_URL_PREFIX,
   MUNICIPALITY_ID,
   NAMESPACE,
+  STAGE_PASSWORD,
 } = process.env;
